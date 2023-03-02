@@ -305,9 +305,11 @@ class symbol(line):
             return
         for t in tol:
 #            print("t = '%s'" % (t,) )
-            if( t == "tol" ):
+            if( t.startswith("tol") ):
                 sltol = self.spicelines.get("tol",None)
                 if( sltol is None ):
+                    if( t == "tolauto"):
+                        continue
                     raise RuntimeError(f"Specified component {self.name} has no built in tolerance, you need to provide one")
                 self.value_tolerance(float(sltol),mc,mm)
                 continue
@@ -462,6 +464,12 @@ def show_overview( ):
             tbl.append( [ typ, len(vl), ",".join(notol), ",".join(tol)] )
     print_table(tbl)
 
+def tol_if_zero( tol ):
+    if( tol == 0.0 ):
+        return ["tolauto"]
+    else:
+        return tol
+
 def selected( sym, capacitors, resistors, inductors, components ):
 #    print("sym = '%s'" % (sym,) )
 #    print("capacitors = '%s'" % (capacitors,) )
@@ -476,13 +484,13 @@ def selected( sym, capacitors, resistors, inductors, components ):
         return comp
     match sym.typ:
         case "cap":
-            return capacitors
+            return tol_if_zero(capacitors)
         case "res":
-            return resistors
+            return tol_if_zero(resistors)
         case "ind":
-            return inductors
+            return tol_if_zero(inductors)
         case "ind2":
-            return inductors
+            return tol_if_zero(inductors)
     return None
 
 def generate_bitfunctions( ):
@@ -507,10 +515,10 @@ def main ( ):
 
     generic = parser.add_argument_group("Generic Component Handling", "All these take a tolerance in %% which is applied to all specified parameters of a component, e.g. serial/parallel resistance of caps etc.. Leave them empty to only apply tolerances mentioned in the model ( via tol=xxx SpiceLine )")
 
-    generic.add_argument("-c","--capacitors", metavar="CAP",type=float, action="store", help = "Capacitor tolerance for everything")
-    generic.add_argument("-r","--resistors",  metavar="RES",type=float, action="store", help = "Resistor tolerance for everything")
-    generic.add_argument("-i","--inductors",  metavar="IND",type=float, action="store", help = "Inductor tolerance for everything")
-    generic.add_argument("-a","--all",        type=float, action="store", help = "Tolerance in %% for all supported types that don't have an explicit tolerance")
+    generic.add_argument("-c","--capacitors", metavar="TOL",type=float, action="store", nargs="?", const=0.0, help = "Capacitor tolerance for everything")
+    generic.add_argument("-r","--resistors",  metavar="TOL",type=float, action="store", nargs="?", const=0.0, help = "Resistor tolerance for everything")
+    generic.add_argument("-i","--inductors",  metavar="TOL",type=float, action="store", nargs="?", const=0.0, help = "Inductor tolerance for everything")
+    generic.add_argument("-a","--all",        metavar="TOL",type=float, action="store", nargs="?", const=0.0, help = "Tolerance in %% for all supported types that don't have an explicit tolerance")
 #    generic.add_argument("-","--", action="store_true", help = "")
 
     algo = parser.add_argument_group("Algorithm Parameters", "You can specify -m and -M together but be aware that this can cause extreme amount of steps")
@@ -566,9 +574,10 @@ def main ( ):
     
 #    print("args.component = '%s'" % (args.component,) )
     ecom = []
-    for c in args.component:
-        ec = c.split(";")
-        ecom += ec
+    if( args.component is not None ):
+        for c in args.component:
+            ec = c.split(";")
+            ecom += ec
 
     components = {}
     for e in filter(len,ecom):
@@ -578,15 +587,14 @@ def main ( ):
         except ValueError:
             components[e] = [ "tol" ]
 
-    if( args.all ):
+    if( args.all is not None ):
         if( args.capacitors is None ):
             args.capacitors = args.all
         if( args.resistors is None ):
             args.resistors = args.all
         if( args.inductors is None ):
             args.inductors = args.all
-
-
+    
     for sym in all:
         tol = selected( sym, args.capacitors, args.resistors, args.inductors, components )
         if( tol is not None ):
