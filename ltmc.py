@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import traceback
 
 outfile = None
 verbose = False
@@ -158,6 +159,12 @@ class raw_line(line):
 
 next_bit_id = 0
 
+toltable = []
+
+def add_tol( comp, name, sname,val, ta, tb ):
+    global toltable
+    toltable.append( [ comp, name,sname, val, f"{ta*100}%", f"{tb*100}%" ] )
+
 def gen_bit_id( ):
     global next_bit_id
 
@@ -211,6 +218,7 @@ class symbol(line):
                 self.value2 = " ".join(line[1:])
             case "SpiceLine":
                 for sl in line[1:]:
+#                    print("sl = '%s'" % (sl,) )
                     sl = sl.split("=")
                     self.spicelines[sl[0]] = sl[1]
             case _:
@@ -250,16 +258,30 @@ class symbol(line):
         elif( mm ):
             return self.minmax_tolstr( value, tolmin, tolmax )
 
+    def tolpair( self, tols ):
+        if( isinstance(tols,float) ):
+            return ( tols/100.0, tols/100.0 )
+        sidx = tols.find("/")
+        if( sidx != -1 ):
+            tols = tols.split("/")
+            tva = float(tols[0])/100.0
+            tvb = float(tols[1])/100.0
+        else:
+            tva = tvb = float(tols)/100.0
+        return ( tva, tvb )
+
     def value_tolerance( self, tol, mc, mm ):
-        try:
+#        try:
 #            print("self.value = '%s'" % (self.value,) )
-            value,_ = split_suffix(self.value)
-            value = float(value)
-        except ValueError:
-            print(f"Don't know what {self.value} means")
-            return
-        tol = float(tol)/100.0
-        tolstr = self.get_tolstr(mc,mm,self.value,tol,tol)
+#            value,_ = split_suffix(self.value)
+#            value = float(value)
+#        except ValueError:
+#            print(f"Don't know what {self.value} means")
+#            return
+        tola,tolb = self.tolpair(tol)
+        tolstr = self.get_tolstr(mc,mm,self.value,tola,tolb)
+        add_tol(self.typ,self.name,self.short,self.value,tola,tolb)
+
         if( self.typ in { "voltage", "ind2" } ):
             self.value = tolstr
         else:
@@ -272,10 +294,23 @@ class symbol(line):
 #        print("self.spicelines = '%s'" % (self.spicelines,) )
         if( isinstance(tol,float) ):
             self.value_tolerance(tol,mc,mm)
-            print()
             return
         for t in tol:
-            t = t.split(":")
+#            print("t = '%s'" % (t,) )
+            if( t == "tol" ):
+                sltol = self.spicelines.get("tol",None)
+                if( sltol is None ):
+                    raise RuntimeError(f"Specified component {self.name} has no built in tolerance, you need to provide one")
+                self.value_tolerance(float(sltol),mc,mm)
+                continue
+            try:
+                t=float(t)
+                self.value_tolerance(t,mc,mm)
+                continue
+            except ValueError:
+#                traceback.print_exc()
+                pass
+            t = t.split("=")
             if( len(t) != 2 ):
                 print(f"Invalid input {t}")
                 continue
@@ -284,20 +319,17 @@ class symbol(line):
                 self.value_tolerance(t[1],mc,mm)
             else:
                 tf,tv = t
-                sidx = tv.find("/")
-                if( sidx != -1 ):
-                    tv = tv.split("/")
-                    tva = float(tv[0])/100.0
-                    tvb = float(tv[1])/100.0
-                else:
-                    tva = tvb = float(tv)/100.0
+                tva,tvb = self.tolpair(tv)
                 oldval = self.spicelines.get(tf,None)
-                if( oldval is not None ):
+                if( oldval is None ):
+                    raise RuntimeError(f"Symbol {self.name} does not have SpiceLine {tf}")
+                else:
 #                    print(f"{tf} is in spice lines")
                     ntv = self.get_tolstr(mc,mm,oldval,tva,tvb)
+                    add_tol(self.typ,self.name,tf,oldval,tva,tvb)
 #                    print(f"{tva:.8}/{tvb:.8} => {ntv}")
                     self.spicelines[tf] = ntv
-        print()
+#        print()
 
 
 """
@@ -424,7 +456,11 @@ def show_overview( ):
 
 def selected( sym, capacitors, resistors, inductors, components ):
 #    print("sym = '%s'" % (sym,) )
+#    print("capacitors = '%s'" % (capacitors,) )
 #    print("resistors = '%s'" % (resistors,) )
+#    print("inductors = '%s'" % (inductors,) )
+#    print("components = '%s'" % (components,) )
+
     if( sym.raw ):
         return None
     comp = components.get(sym.name,None)
@@ -443,7 +479,7 @@ def selected( sym, capacitors, resistors, inductors, components ):
 
 def generate_bitfunctions( ):
     ret = """
-TEXT 0 0    Left 2 !.function selected_tolerance( idx, nominal, tolerancemin, tolerancemax ) { if( selected(idx), nominal*tolerancemin, nominal*tolerancemax ) }
+TEXT 0 0    Left 2 !.function selected_tolerance( idx, nominal, tolerancemin, tolerancemax ) { if( selected(idx), nominal*(1-tolerancemin), nominal*(1+tolerancemax) ) }
 TEXT 0 -40  Left 2 !.function shift_i( num, x )   { floor(shift_d(num,x)) }
 TEXT 0 -80  Left 2 !.function shift_d( num, x )   { num / (2**x) }
 TEXT 0 -120 Left 2 !.function bit_set( num, bit ) { shift_d(num, bit+1) - shift_i(num, bit+1) >= 0.5 }
@@ -490,7 +526,7 @@ def main ( ):
     # random(x) like rand but takes a float that tells how to "smooth" between the int plateus.
 
     single = parser.add_argument_group("Single Component Selections","Use these options to select single components and get more control over them. Consider using @fromfiles for your options")
-    single.add_argument("-C","--component", type = str, default = "", help = "Component designator e.g. R0=R:0.4;Cpar=1 (see code or documentation)" )
+    single.add_argument("-C","--component", action="append", help = "Component designator e.g. R0=R:0.4;Cpar=1 (see code or documentation)" )
     # select components and for each
     # - when nothing is selected, tolerance on all values
     #   -C R0,R2,R3
@@ -520,12 +556,19 @@ def main ( ):
         print("You need to chose -m or -M or both to make me do something")
         return None
     
-    ecom = args.component.split(",")
+#    print("args.component = '%s'" % (args.component,) )
+    ecom = []
+    for c in args.component:
+        ec = c.split(";")
+        ecom += ec
 
     components = {}
     for e in filter(len,ecom):
-        comp,tol = e.split("=")
-        components[comp] = tol.split(";")
+        try:
+            comp,tol = e.split(":")
+            components[comp] = tol.split(",")
+        except ValueError:
+            components[e] = [ "tol" ]
 
     if( args.all ):
         if( args.capacitors is None ):
@@ -569,6 +612,10 @@ def main ( ):
         print(f"Too many iterations ({maxbit}), ltspice only supports up to 100001. It would probably take too long anyways. Try to reduce the number of components used, or switch to monte carlo instead")
     print(f"Written output to {outfilename}")
     print(f"Generated {num_tolstrings} tolerance modifiers")
+
+    if( len(toltable) > 0 ):
+        hline = [ "Component", "Name", "Attribute", "Value", "-Tolerance", "+Tolerance" ]
+        print_table( [hline] + toltable )
 
 if __name__ == "__main__":
     main()
