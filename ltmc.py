@@ -178,6 +178,7 @@ class symbol(line):
     valid_lines = { "WINDOW" }
     shortmap = { "cap" : "C", "res" : "R", "ind" : "I", "ind2" : "I", "voltage" : "V" }
     valid_extra = { "cap" : { "Rser", "Rpar", "Lser", "Lpar" } }
+    managed = { "InstName", "Value", "Value2", "SpiceLine" }
     def __init__( self, typ, pos ):
         self.typ = typ # SYMATTR first parameter
         self.short = self.shortmap.get(typ,None)
@@ -204,6 +205,11 @@ class symbol(line):
             for k,v in self.spicelines.items():
                 spstr += f" {k}={v}"
             output(spstr)
+        for attr,val in self.attributes.items():
+            if( attr not in self.managed ):
+                output(f"SYMATTR {attr} {' '.join(val)}")
+            else:
+                output(f"* SYMATTR {attr} {' '.join(val)}")
 
     def spice( self, key ):
         return self.spicelines.get(key,None)
@@ -221,6 +227,8 @@ class symbol(line):
 #                    print("sl = '%s'" % (sl,) )
                     sl = sl.split("=")
                     self.spicelines[sl[0]] = sl[1]
+            case "SpiceModel":
+                pass
             case _:
                 print("no info: '%s'" % (line,) )
 
