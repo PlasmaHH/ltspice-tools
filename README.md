@@ -1,7 +1,6 @@
 A set of tools I use to manage my ltspice and schematics. Barely usable for others now, but as soon as it is I will add
 some documentation.
 
-
 # ltmc.py - A montecarlo/minmax simulation generator
 Take your existing simulation and transform it into a monte carlo like, or min/max tolerance simulation.
 
@@ -16,6 +15,7 @@ longer than a second, this will most likely run days anyways so isn't feasible.
 
 ## Specifying components and their tolerances
 
+### Single components
 You can specify components like
 ```
 ltmc.py -C R1 ltmc.asc
@@ -33,3 +33,25 @@ error, unless you specify something else.
 You can use multiple `-C` arguments or a list of them seperated by `;` but be careful that the shell does not interpret
 it.
 
+### By component type
+You can specify something for whole types
+* `-r` Selects all resistors that have a tolerance value built into the schematic
+* `-r 4.5` Sets a tolerance of 4.5% for all resistors, regardless of the value in the schematic
+
+Same goes for `-c` for capacitors, `-i` for inductors and `-a` for all three of them.
+
+# ltmanage.py Manage your 3rd party components
+
+This is an upcoming tool. It will be possible to
+
+* Update from URLs
+* Store and mark components that are obsolete
+* Unify the standard.* files from multiple sources
+* Automatically check for each .asy if the .lib file is there
+* For .lib files that do not seem to have a .asy try to automatically create or chose one
+* Automatically assemble .lib files from multiple sources and assign a proper .asy file for it
+
+# ltgoogle.py Make it easier to get components from the web
+
+Another upcoming tool. Will try to google component definitions. It can download and compare multiple hits and collect
+collateral information. Will be able to output configuration data for ltmanage.py to keep things updated.
